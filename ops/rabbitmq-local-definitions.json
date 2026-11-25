@@ -1,0 +1,37 @@
+{
+  "users": [
+    {
+      "name": "reservations",
+      "password_hash": "cmk0NHdkZIUcfaSf1KnVCYXYKK2avFldC1UicP4kIJS38KIp",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "reservations",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "policies": [
+    {
+      "vhost": "/",
+      "name": "reserve-dead-letters",
+      "pattern": "^reservations\\.(bulk|single)$",
+      "apply-to": "quorum_queues",
+      "definition": {
+        "dead-letter-strategy": "at-least-once",
+        "overflow": "reject-publish"
+      },
+      "priority": 10
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+x-app: &app
+  build: .
+  image: reservation-ingest:local
+  environment: &app-environment
+    RESERVATION_DATABASE_URL: postgresql+psycopg://reservations:reservations@postgres:5432/reservations
+    RESERVATION_RABBITMQ_URL: amqp://reservations:reservations@rabbitmq:5672/
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17.12
+    environment:
+      POSTGRES_USER: reservations
+      POSTGRES_PASSWORD: reservations
+      POSTGRES_DB: reservations
+    ports:
+      - "127.0.0.1:${RESERVATION_DB_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reservations -d reservations"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.4.1-management
+    ports:
+      - "127.0.0.1:${RESERVATION_AMQP_PORT:-15673}:5672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./ops/rabbitmq-local.conf:/etc/rabbitmq/conf.d/90-reservation.conf:ro
+      - ./ops/rabbitmq-local-definitions.json:/etc/rabbitmq/reservation-definitions.json:ro
+    hostname: rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command: ["uvicorn", "reservation_ingest.api:app", "--host", "0.0.0.0", "--port", "8000", "--limit-concurrency", "128"]
+    ports:
+      - "127.0.0.1:${RESERVATION_HTTP_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  relay:
+    <<: *app
+    command: ["reservation-ingest", "relay"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-bulk:
+    <<: *app
+    command: ["reservation-ingest", "worker", "--lane", "bulk"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-single:
+    <<: *app
+    environment:
+      <<: *app-environment
+      RESERVATION_DB_POOL_SIZE: "2"
+      RESERVATION_WORKER_CONCURRENCY: "2"
+    command: ["reservation-ingest", "worker", "--lane", "single"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
