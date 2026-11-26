@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Reservation Ingest",
+    "locale": "en",
+    "output": "docs/architecture-reservation-ingest-20261125-162421/reservation-ingest.html",
+    "quality_profile": "showcase"
+  },
+  "layout": { "mode": "auto" },
+  "components": [
+    {
+      "id": "partners",
+      "type": "external",
+      "label": "Integration partners",
+      "sublabel": "Property management systems",
+      "explanation": "Submit independent reservation creates over HTTPS and retry ambiguous results with the same idempotency key. A burst may come from one partner, one owner, and one property."
+    },
+    {
+      "id": "edge",
+      "type": "cloud",
+      "label": "Public HTTPS edge",
+      "sublabel": "Load balancing and limits",
+      "explanation": "Apply body and concurrency limits, and distribute requests to healthy API replicas. The demo accepts synthetic submissions without credentials."
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Intake API",
+      "sublabel": "202 after durable commit",
+      "explanation": "Validate the request, deduplicate by key and reservation identity, and commit a new intake and outbox entry together before returning 202. Read the current result by opaque intake ID. Return a retryable response during database failover or when backlog admission closes."
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "Intakes, outbox, reservations",
+      "explanation": "The Multi-AZ database is the durable record of accepted work. Different reservations need no owner-wide lock. An intake's outcome and its completed reservation are written atomically."
+    },
+    {
+      "id": "relay",
+      "type": "backend",
+      "label": "Outbox relay",
+      "sublabel": "Leased batches and retries",
+      "explanation": "Replicas claim outbox rows with expiring leases and publish independently. Mark an event sent only after SQS confirms it. Broker downtime leaves work in the outbox, and a crash after send can cause a duplicate."
+    },
+    {
+      "id": "queue",
+      "type": "messagebus",
+      "label": "SQS Standard",
+      "sublabel": "At-least-once delivery",
+      "explanation": "Buffer bursts and deliver different reservations in parallel without grouping them by owner or property. Visibility timeout supports redelivery and the receive limit routes unhandled messages to the dead-letter queue."
+    },
+    {
+      "id": "workers",
+      "type": "backend",
+      "label": "Reservation workers",
+      "sublabel": "Commit before message delete",
+      "explanation": "A worker checks the dispatch generation, locks only the intake row, and commits the reservation and result together. Redeliveries for a completed or obsolete generation are safe. Retry transient failures using visibility delays."
+    },
+    {
+      "id": "dlq",
+      "type": "messagebus",
+      "label": "Dead-letter queue",
+      "sublabel": "Exhausted delivery attempts",
+      "explanation": "Retain repeatedly unhandled messages for recovery. The durable intake ledger remains available if a queue message or a dead letter has expired."
+    },
+    {
+      "id": "recovery",
+      "type": "backend",
+      "label": "Recovery worker",
+      "sublabel": "Record failure and replay",
+      "explanation": "Record a terminal failure for a matching pending generation from the DLQ. Flag overdue intakes from PostgreSQL. After an operator resolves the cause, replay the original payload via a fresh generation and outbox entry in the same transaction."
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS region",
+      "wraps": ["edge", "api", "postgres", "relay", "queue", "workers", "dlq", "recovery"]
+    }
+  ],
+  "connections": [
+    { "id": "partner-edge", "from": "partners", "to": "edge", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "edge-api", "from": "edge", "to": "api", "label": "Submit / poll", "variant": "emphasis" },
+    { "id": "api-postgres", "from": "api", "to": "postgres", "label": "Commit intake + outbox", "variant": "emphasis" },
+    { "id": "postgres-relay", "from": "postgres", "to": "relay", "label": "Leased events", "variant": "dashed" },
+    { "id": "relay-queue", "from": "relay", "to": "queue", "label": "Publish events", "variant": "dashed" },
+    { "id": "queue-workers", "from": "queue", "to": "workers", "label": "Deliver / redeliver", "variant": "dashed" },
+    { "id": "workers-postgres", "from": "workers", "to": "postgres", "label": "Commit reservation + status" },
+    { "id": "queue-dlq", "from": "queue", "to": "dlq", "label": "Receive limit", "variant": "dashed" },
+    { "id": "dlq-recovery", "from": "dlq", "to": "recovery", "label": "Exhausted events", "variant": "dashed" },
+    { "id": "recovery-postgres", "from": "recovery", "to": "postgres", "label": "Record failure / requeue" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One owner can use many workers",
+      "items": [
+        "Each reservation is an independent unit of work, including reservations for the same property.",
+        "Scale from queue age and reserve database capacity for fresh intake during recovery."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Acceptance survives broker downtime",
+      "items": [
+        "The API confirms the PostgreSQL commit. The relay can publish later.",
+        "When the durable backlog reaches its threshold, return 503 and preserve accepted work."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Recover from durable state",
+      "items": [
+        "Worker retries can duplicate delivery. The database protects the reservation from duplicate creation.",
+        "A fresh dispatch generation permits replay even after broker retention expires."
+      ]
+    }
+  ]
+}

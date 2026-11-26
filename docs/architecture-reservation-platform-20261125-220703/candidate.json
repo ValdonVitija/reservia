@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Reservation Ingestion",
+    "locale": "en",
+    "output": "docs/architecture-reservation-platform-20261125-220703/architecture.html",
+    "quality_profile": "showcase"
+  },
+  "layout": { "mode": "auto" },
+  "components": [
+    {
+      "id": "partner",
+      "type": "external",
+      "label": "Integration partner",
+      "sublabel": "Submit bookings and poll results",
+      "explanation": "A property management system submits one reservation or up to 500 rows per JSON batch. It retries uncertain submissions with the same idempotency key and checks the receipt for each row's result."
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI intake",
+      "sublabel": "Validate and record receipt",
+      "explanation": "Bound the request, select the integration context, and meter reservation rows. Commit the payload, receipt, chunk jobs, and outbox entries together before returning 202. Scale API replicas behind a TLS load balancer in production."
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "Catalog, intake, outbox, and results",
+      "explanation": "Accept work and maintain its status in one durable ledger. A recovered primary can serve retries and recover work. The production target uses failover and tested point-in-time restore."
+    },
+    {
+      "id": "relay",
+      "type": "backend",
+      "label": "Outbox relay",
+      "sublabel": "Lease jobs and confirm publication",
+      "explanation": "Claim due outbox entries with an expiring PostgreSQL lease. Publish a small reference per chunk. Record routing and broker confirmation. Unconfirmed events become eligible for another attempt."
+    },
+    {
+      "id": "rabbitmq",
+      "type": "messagebus",
+      "label": "RabbitMQ",
+      "sublabel": "Bulk and individual quorum queues",
+      "explanation": "Route bulk and individual jobs to independent consumer pools. Production uses a three-node quorum deployment across failure domains."
+    },
+    {
+      "id": "workers",
+      "type": "backend",
+      "label": "Reservation workers",
+      "sublabel": "Bulk pool and reserved single pool",
+      "explanation": "Validate property and room scope, deduplicate, insert valid reservations in batches, and save a result for each input row. Acknowledge only after commit. Schedule transient retries through the outbox."
+    },
+    {
+      "id": "dlq",
+      "type": "messagebus",
+      "label": "Dead-letter queue",
+      "sublabel": "Invalid or exhausted deliveries",
+      "explanation": "Move malformed or repeatedly redelivered messages to a durable quorum queue. The bulk worker's quarantine consumer records the outcome before acknowledging the dead letter."
+    },
+    {
+      "id": "operator",
+      "type": "backend",
+      "label": "Operator CLI",
+      "sublabel": "Catalog and recovery",
+      "explanation": "Provision properties, rooms, and integrations. Seed large test catalogs. Inspect overdue work, replay a failed or overdue job, and prune old staged payloads."
+    }
+  ],
+  "connections": [
+    { "id": "partner-api", "from": "partner", "to": "api", "label": "HTTPS / 202 receipt", "variant": "emphasis" },
+    { "id": "api-postgres", "from": "api", "to": "postgres", "label": "Commit intake / read status", "variant": "emphasis" },
+    { "id": "postgres-relay", "from": "postgres", "to": "relay", "label": "Leased outbox entries", "variant": "dashed" },
+    { "id": "relay-rabbit", "from": "relay", "to": "rabbitmq", "label": "Publish / confirm", "variant": "dashed" },
+    { "id": "rabbit-workers", "from": "rabbitmq", "to": "workers", "label": "Deliver / acknowledge", "variant": "dashed" },
+    { "id": "workers-postgres", "from": "workers", "to": "postgres", "label": "Commit rows / schedule retries" },
+    { "id": "rabbit-dead", "from": "rabbitmq", "to": "dlq", "label": "Dead-letter", "variant": "dashed" },
+    { "id": "dead-workers", "from": "dlq", "to": "workers", "label": "Quarantine", "variant": "dashed" },
+    { "id": "operator-postgres", "from": "operator", "to": "postgres", "label": "Provision / replay" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Batch throughput",
+      "items": [
+        "One receipt and up to five 100-row jobs per request.",
+        "Separate worker pools and database connection budgets reserve capacity for individual submissions."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Durable acceptance",
+      "items": [
+        "Return 202 after PostgreSQL commits the receipt and outbox.",
+        "RabbitMQ downtime leaves work in the outbox. An unavailable PostgreSQL writer returns 503."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Safe recovery",
+      "items": [
+        "Worker acknowledgement follows the PostgreSQL commit. Repeated deliveries reuse committed results.",
+        "Run the production topology across failure domains. Local Compose uses one database and one broker node."
+      ]
+    }
+  ]
+}

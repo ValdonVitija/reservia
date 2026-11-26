@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "7e7135d6-8733-462d-a8cc-71d7d6102d62",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/vvitija/oss/reservia/docs/architecture-reservation-platform-20261125-220703/candidate.json",
+  "output": "/Users/vvitija/oss/reservia/docs/architecture-reservation-platform-20261125-220703/architecture.html",
+  "specification": {
+    "sha256": "4afc94d88ed275877918d79baa9b6f3475402bf7f628834ec8f4cc79eb66af91",
+    "bytes": 5071
+  },
+  "artifact": {
+    "sha256": "a3d94de39496c662c5896229256c79def32b920540929d90ef866927ced67660",
+    "bytes": 940833
+  }
+}

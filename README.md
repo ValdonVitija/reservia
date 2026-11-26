@@ -6,11 +6,11 @@ An API for hospitality partners to send confirmed reservations individually or i
 
 ## Explore the architecture
 
-From a local checkout, double-click [architecture.html](.archify/architecture-reservation-platform-20261125-220703/architecture.html) to open the viewer in your browser.
+From a local checkout, double-click [architecture.html](docs/architecture-reservation-platform-20261125-220703/architecture.html) to open the viewer in your browser.
 
 
 
-![Reservation ingestion architecture](.archify/architecture-reservation-platform-20261125-220703/architecture.svg)
+![Reservation ingestion architecture](docs/architecture-reservation-platform-20261125-220703/architecture.svg)
 
 ## Run locally
 
