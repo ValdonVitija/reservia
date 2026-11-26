@@ -1,6 +1,6 @@
 # Reservia
 
-An API for hospitality partners to send confirmed reservations individually or in bulk. The Python services use PostgreSQL for durable intake and RabbitMQ to dispatch work. The architecture has been designed/constructed to support reservation processing even in the event of failure
+An API for external services to send confirmed reservations individually or in bulk. The  services use PostgreSQL for durable intake and RabbitMQ to dispatch work. The architecture has been designed/constructed to support reservation processing even in the event of failure
 
 [Production operations](ops/PRODUCTION.md)
 

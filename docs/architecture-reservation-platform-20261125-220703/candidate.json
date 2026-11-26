@@ -12,14 +12,14 @@
     {
       "id": "partner",
       "type": "external",
-      "label": "Integration partner",
-      "sublabel": "Submit bookings and poll results",
+      "label": "External Service",
+      "sublabel": "Submit reservations and poll results",
       "explanation": "A property management system submits one reservation or up to 500 rows per JSON batch. It retries uncertain submissions with the same idempotency key and checks the receipt for each row's result."
     },
     {
       "id": "api",
       "type": "backend",
-      "label": "FastAPI intake",
+      "label": "Reservia Public API",
       "sublabel": "Validate and record receipt",
       "explanation": "Bound the request, select the integration context, and meter reservation rows. Commit the payload, receipt, chunk jobs, and outbox entries together before returning 202. Scale API replicas behind a TLS load balancer in production."
     },
