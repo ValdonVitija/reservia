@@ -2,7 +2,7 @@ import asyncio
 import os
 from dataclasses import dataclass
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -20,7 +20,7 @@ from reservation_ingest.catalog import (
 )
 from reservation_ingest.config import Settings
 from reservation_ingest.db import create_database
-from reservation_ingest.models import Housing
+from reservation_ingest.models import Housing, Job
 
 pytestmark = pytest.mark.integration
 
@@ -112,6 +112,37 @@ async def test_batch_partial_results_and_pagination(system: System) -> None:
             headers={"Idempotency-Key": key},
         )
         assert conflict.status_code == 409
+
+
+async def test_concurrent_retries_share_one_import_job(system: System) -> None:
+    request = {"reservations": [booking(uuid4().hex)]}
+    headers = {"Idempotency-Key": uuid4().hex}
+    async with httpx.AsyncClient(base_url=system.api) as client:
+        first, second = await asyncio.gather(
+            client.post("/v1/reservation-imports", json=request, headers=headers),
+            client.post("/v1/reservation-imports", json=request, headers=headers),
+        )
+        assert sorted((first.status_code, second.status_code)) == [200, 202], (
+            first.text,
+            second.text,
+        )
+        receipt = first.json()
+        assert second.json() == receipt
+        path = first.headers["Location"]
+        assert second.headers["Location"] == path == receipt["status_url"]
+        outcome = await terminal(client, path)
+        assert outcome["succeeded"] == 1
+
+    receipt_id = UUID(receipt["id"])
+    engine, sessions = create_database(Settings())
+    try:
+        async with sessions() as session:
+            job_count = await session.scalar(
+                select(func.count(Job.id)).where(Job.import_id == receipt_id)
+            )
+            assert job_count == 1
+    finally:
+        await engine.dispose()
 
 
 async def test_concurrent_single_and_bulk_share_reservation_identity(
